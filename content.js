@@ -139,12 +139,12 @@ window.PORTFOLIO = {
       links: [{ label: "Source", url: "https://github.com/xesco/simple-k8s-operator" }]
     },
     {
-      name: "msx-w2c",
-      file: "MSXW2C.EXE",
+      name: "msx-caster",
+      file: "CAST.EXE",
       year: "2026",
-      stack: ["Rust", "MSX"],
-      text: ["A Rust version of the WAV to CAS converter for MSX cassette images."],
-      links: [{ label: "Source", url: "https://github.com/xesco/msx-w2c" }]
+      stack: ["C", "CMake", "MSX"],
+      text: ["A command-line toolbox for MSX cassette tapes: decode, convert, encode, play and verify WAV, CAS and TSX images."],
+      links: [{ label: "Source", url: "https://github.com/xesco/msx-caster" }]
     }
   ],
 
