@@ -99,12 +99,12 @@ window.PORTFOLIO = {
       links: [{ label: "Source", url: "https://github.com/xesco/opm86" }]
     },
     {
-      name: "casgo",
-      file: "CASGO.COM",
+      name: "snapcas",
+      file: "SNAPCAS.COM",
       year: "2026",
-      stack: ["Z80 assembly", "MSX-DOS 2", "Nextor"],
-      text: ["Loads MSX cassette games from CAS files under Nextor or MSX-DOS 2."],
-      links: [{ label: "Source", url: "https://github.com/xesco/casgo" }]
+      stack: ["Z80 assembly", "Python", "openMSX"],
+      text: ["Snapshots MSX cassette games in openMSX and restores them on a real MSX from disk or SD."],
+      links: [{ label: "Source", url: "https://github.com/xesco/snapcas" }]
     },
     {
       name: "dosctl",
