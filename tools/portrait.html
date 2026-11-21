@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Portrait maker</title>
+<style>
+  body { margin: 0; padding: 24px; background: #0000AA; color: #FFFFFF; font: 16px/1.4 "Courier New", monospace; }
+  h1 { font-size: 24px; color: #FFFF55; margin: 0 0 8px; }
+  p { max-width: 80ch; margin: 0 0 12px; }
+  label { display: inline-block; margin: 0 18px 10px 0; }
+  input[type=number] { width: 6em; font: inherit; }
+  .row { display: flex; flex-wrap: wrap; gap: 32px; margin-top: 16px; }
+  figure { margin: 0; }
+  canvas { display: block; width: 256px; height: 320px; image-rendering: pixelated; background: #000; border: 2px solid #000; margin-bottom: 8px; }
+  a { color: #55FFFF; }
+</style>
+</head>
+<body>
+<h1>Portrait maker</h1>
+<p>Turns a photo into the pixelated portrait the site shows. Choose a photo, tune the numbers, then save portrait-vga.png next to index.html. The EGA version is optional: set its file name in content.js to get an EGA/VGA switch. The photo never leaves this page.</p>
+<p><input type="file" id="file" accept="image/*"></p>
+<p>
+  <label title="Picture width in pixels: fewer = chunkier">Pixels wide <input type="number" id="px" value="80" step="8" min="16" max="320"></label>
+  <label title="Where the face is, from the left (0 to 1)">Face X <input type="number" id="fx" value="0.5" step="0.05" min="0" max="1"></label>
+  <label title="Where the face is, from the top (0 to 1)">Face Y <input type="number" id="fy" value="0.1" step="0.05" min="0" max="1"></label>
+  <label title="VGA palette size: fewer = flatter, more cartoon">Colours <input type="number" id="colors" value="64" step="1" min="4" max="64"></label>
+  <label title="How much detail is flattened: 0 none, 3 very blobby">Smooth <input type="number" id="smooth" value="0" step="1" min="0" max="4"></label>
+  <label title="Dark outlines: lower = more lines, 0 = none">Outline <input type="number" id="outline" value="0" step="10" min="0" max="400"></label>
+  <label>Saturation <input type="number" id="sat" value="1.15" step="0.05" min="0" max="3"></label>
+  <label>Contrast <input type="number" id="con" value="1.1" step="0.05" min="0.5" max="3"></label>
+</p>
+<div class="row">
+  <figure><canvas id="vga" width="128" height="160"></canvas><a id="saveVga" download="portrait-vga.png">Save portrait-vga.png</a></figure>
+  <figure><canvas id="ega" width="128" height="160"></canvas><a id="saveEga" download="portrait-ega.png">Save portrait-ega.png</a></figure>
+</div>
+<script>
+/* A photo pixelated the way a digitised picture looked on DOS. By default just steps 1 and 4; 2 and 3 are optional extras.
+   1. crop and shrink to a few dozen pixels across (4:5)
+   2. Smooth > 0: Kuwahara filter, flattens skin, hair and cloth into painted patches but keeps their edges sharp
+   3. Outline > 0: dark outlines wherever the picture changes abruptly
+   4. colours. VGA: a small palette fitted to the picture, flat, no dither.
+               EGA: the 16 EGA colours, flat or as a 50% checkerboard of two similar ones, which is how EGA artists mixed shades. */
+(function () {
+  'use strict';
+  var W = 128, H = 160, N = W * H, pic = null;
+  function $(id) { return document.getElementById(id); }
+  function num(id) { return parseFloat($(id).value) || 0; }
+  var EGA = [[0, 0, 0], [0, 0, 170], [0, 170, 0], [0, 170, 170], [170, 0, 0], [170, 0, 170], [170, 85, 0], [170, 170, 170],
+    [85, 85, 85], [85, 85, 255], [85, 255, 85], [85, 255, 255], [255, 85, 85], [255, 85, 255], [255, 255, 85], [255, 255, 255]];
+  function lum(r, g, b) { return .299 * r + .587 * g + .114 * b; }
+  function far(r, g, b, c) { return 2 * (r - c[0]) * (r - c[0]) + 4 * (g - c[1]) * (g - c[1]) + 3 * (b - c[2]) * (b - c[2]); }
+  /* every EGA colour, plus every checkerboard of two colours close enough in brightness and hue to blend instead of clash */
+  var EGAMIX = (function () {
+    var out = EGA.map(function (c) { return { c: c, a: c, b: c, cost: 0 }; }), i, j, x, y;
+    for (i = 0; i < 16; i++) for (j = i + 1; j < 16; j++) {
+      x = EGA[i]; y = EGA[j];
+      if (Math.abs(lum(x[0], x[1], x[2]) - lum(y[0], y[1], y[2])) < 95 && Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]) < 175) out.push({ c: [(x[0] + y[0]) / 2, (x[1] + y[1]) / 2, (x[2] + y[2]) / 2], a: x, b: y, cost: 900 });
+    }
+    return out;
+  })();
+  function kuwahara(a, rad) {
+    var o = new Float32Array(N * 3), x, y, q, xx, yy, i, k, n, r, gg, b, l, s, s2, v, best;
+    for (y = 0; y < H; y++) for (x = 0; x < W; x++) {
+      best = Infinity; k = (y * W + x) * 3;
+      for (q = 0; q < 4; q++) {                                  // four overlapping squares around the pixel; keep the calmest one's average
+        r = gg = b = s = s2 = n = 0;
+        for (yy = (q & 2 ? y : y - rad); yy <= (q & 2 ? y + rad : y); yy++) for (xx = (q & 1 ? x : x - rad); xx <= (q & 1 ? x + rad : x); xx++) {
+          i = (Math.min(H - 1, Math.max(0, yy)) * W + Math.min(W - 1, Math.max(0, xx))) * 3;
+          l = lum(a[i], a[i + 1], a[i + 2]);
+          r += a[i]; gg += a[i + 1]; b += a[i + 2]; s += l; s2 += l * l; n++;
+        }
+        v = s2 / n - (s / n) * (s / n);
+        if (v < best) { best = v; o[k] = r / n; o[k + 1] = gg / n; o[k + 2] = b / n; }
+      }
+    }
+    return o;
+  }
+  /* k-means: the K colours that describe this picture best, snapped to VGA's 6 bits per channel */
+  function fit(a, K) {
+    var order = [], pal = [], sum, i, k, c, it, best, d, x;
+    for (i = 0; i < N; i++) order.push(i);
+    order.sort(function (p, q) { return lum(a[p * 3], a[p * 3 + 1], a[p * 3 + 2]) - lum(a[q * 3], a[q * 3 + 1], a[q * 3 + 2]); });
+    for (k = 0; k < K; k++) { i = order[Math.floor((k + .5) * N / K)] * 3; pal.push([a[i], a[i + 1], a[i + 2]]); }
+    for (it = 0; it < 12; it++) {
+      sum = pal.map(function () { return [0, 0, 0, 0]; });
+      for (i = 0; i < N * 3; i += 3) {
+        best = 0; d = Infinity;
+        for (k = 0; k < K; k++) { x = far(a[i], a[i + 1], a[i + 2], pal[k]); if (x < d) { d = x; best = k; } }
+        c = sum[best]; c[0] += a[i]; c[1] += a[i + 1]; c[2] += a[i + 2]; c[3]++;
+      }
+      for (k = 0; k < K; k++) if (sum[k][3]) pal[k] = [sum[k][0] / sum[k][3], sum[k][1] / sum[k][3], sum[k][2] / sum[k][3]];
+    }
+    return pal.map(function (p) { return p.map(function (v) { return Math.max(0, Math.min(252, Math.round(v / 4) * 4)); }); });
+  }
+  function render() {
+    if (!pic) return;
+    W = Math.max(16, Math.round(num('px'))); H = Math.round(W * 1.25); N = W * H;
+    ['vga', 'ega'].forEach(function (id) { $(id).width = W; $(id).height = H; });
+    var work = document.createElement('canvas'); work.width = W; work.height = H;
+    var g = work.getContext('2d'), s = Math.max(W / pic.width, H / pic.height), sw = W / s, sh = H / s;
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(pic, (pic.width - sw) * num('fx'), (pic.height - sh) * num('fy'), sw, sh, 0, 0, W, H);
+    var d = g.getImageData(0, 0, W, H).data, a = new Float32Array(N * 3), L = new Float32Array(N), edge = new Uint8Array(N);
+    var sat = num('sat'), con = num('con'), cut = num('outline'), rad = num('smooth'), i, c, l, x, y, gx, gy;
+    for (i = 0; i < N; i++) {
+      l = lum(d[i * 4], d[i * 4 + 1], d[i * 4 + 2]);
+      for (c = 0; c < 3; c++) a[i * 3 + c] = Math.max(0, Math.min(255, ((l + (d[i * 4 + c] - l) * sat) - 128) * con + 128));
+    }
+    if (rad > 0) a = kuwahara(a, rad);
+    for (i = 0; i < N; i++) L[i] = lum(a[i * 3], a[i * 3 + 1], a[i * 3 + 2]);
+    if (cut > 0) for (y = 1; y < H - 1; y++) for (x = 1; x < W - 1; x++) {                 // Sobel on brightness
+      i = y * W + x;
+      gx = L[i - W + 1] + 2 * L[i + 1] + L[i + W + 1] - L[i - W - 1] - 2 * L[i - 1] - L[i + W - 1];
+      gy = L[i + W - 1] + 2 * L[i + W] + L[i + W + 1] - L[i - W - 1] - 2 * L[i - W] - L[i - W + 1];
+      if (Math.sqrt(gx * gx + gy * gy) > cut && L[i] < 150) edge[i] = 1;              // only the darker side of an edge, so lines stay thin
+    }
+    paint('vga', a, edge); paint('ega', a, edge);
+    $('saveVga').href = $('vga').toDataURL('image/png');
+    $('saveEga').href = $('ega').toDataURL('image/png');
+  }
+  function paint(style, src, edge) {
+    var g = $(style).getContext('2d'), img = g.createImageData(W, H), o = img.data;
+    var pal = style === 'vga' ? fit(src, Math.max(2, Math.round(num('colors')))) : null, i, k, r, gg, b, best, d, x, c, dark;
+    if (pal) dark = pal.reduce(function (m, p) { return lum(p[0], p[1], p[2]) < lum(m[0], m[1], m[2]) ? p : m; });
+    for (i = 0; i < N; i++) {
+      r = src[i * 3]; gg = src[i * 3 + 1]; b = src[i * 3 + 2]; d = Infinity;
+      if (edge[i]) c = pal ? dark : EGA[0];
+      else if (pal) { for (k = 0; k < pal.length; k++) { x = far(r, gg, b, pal[k]); if (x < d) { d = x; c = pal[k]; } } }
+      else {
+        for (k = 0; k < EGAMIX.length; k++) { x = far(r, gg, b, EGAMIX[k].c) + EGAMIX[k].cost; if (x < d) { d = x; best = EGAMIX[k]; } }
+        c = (i % W + Math.floor(i / W)) & 1 ? best.b : best.a;
+      }
+      o[i * 4] = c[0]; o[i * 4 + 1] = c[1]; o[i * 4 + 2] = c[2]; o[i * 4 + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+  }
+  function load(url) { var im = new Image(); im.onload = function () { pic = im; render(); }; im.src = url; }
+  $('file').addEventListener('change', function () { if (this.files[0]) load(URL.createObjectURL(this.files[0])); });
+  ['px', 'fx', 'fy', 'colors', 'smooth', 'outline', 'sat', 'con'].forEach(function (id) { $(id).addEventListener('change', render); });
+  if (/^http/.test(location.protocol)) load('../photo.jpg');   // served locally: pick up the photo in the project folder, if there is one
+})();
+</script>
+</body>
+</html>

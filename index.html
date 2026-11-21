@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Portfolio Setup</title>
+<meta name="description" content="Portfolio, resume and project work, served as a DOS setup program.">
+<meta name="theme-color" content="#0000AA">
+<link rel="preload" href="fonts/IBM_VGA_9x16_4x3.woff" as="font" type="font/woff" crossorigin>
+<link rel="stylesheet" href="style.css?v=21">
+</head>
+<body>
+
+<!-- Setup: the blue full-screen installer shown on a first visit -->
+<div class="setup" id="setup" hidden>
+  <header class="setup-head"><span id="setupTitle"></span></header>
+  <main class="setup-body" id="setupBody" aria-live="polite"></main>
+  <footer class="setup-status" id="setupStatus"></footer>
+</div>
+
+<!-- Desktop: menu bar, windows, status bar -->
+<div class="desktop" id="desktop" hidden>
+  <nav class="menubar" id="menubar" aria-label="Main menu"></nav>
+  <main class="desk" id="desk"></main>
+  <footer class="status" id="status"></footer>
+</div>
+
+<!-- Exit: a DOS prompt -->
+<div class="prompt" id="prompt" hidden>
+  <pre id="promptText"></pre><span class="cursor" aria-hidden="true">_</span>
+  <button class="prompt-back" id="promptBack"></button>
+</div>
+
+<noscript>
+  <div class="noscript">This portfolio needs JavaScript to run its setup program.</div>
+</noscript>
+
+<script src="content.js?v=21"></script>
+<script src="app.js?v=21"></script>
+</body>
+</html>
